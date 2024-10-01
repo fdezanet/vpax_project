@@ -177,7 +177,7 @@ def extract_infos(vpax_file: Path, replace: bool, infos: list = None) -> None:
             logger.error(f"Error exporting {info} to CSV: {output_file}")
             raise e
 
-        logger.info("END - Successfully extracted and saved {info}.")
+        logger.info(f"END - Successfully extracted and saved {info}.")
 
     logger.info("END - Extracting informations from VPAX source")
 
@@ -293,4 +293,8 @@ def watch_folder(
 
 
 if __name__ == "__main__":
+    # path_to_vpax = Path(
+    #     r"C:\Users\u173350\OneDrive - Universite de Liege\_MY PROJECTS\vpax_project\data\vpax"
+    # )
+    # process_folder(path_to_vpax)
     app()
