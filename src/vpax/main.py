@@ -111,7 +111,7 @@ def extract_vpax(vpax_file: Path) -> None:
                     data = json.load(f)
 
 
-def extract_infos(vpax_file: Path, replace: bool, infos: list = None) -> None:
+def extract_infos_from_vpax(vpax_file: Path, replace: bool, infos: list = None) -> None:
     """
     Extracts DAX measures from a VPAX JSON file and exports them to a CSV.
 
@@ -122,12 +122,11 @@ def extract_infos(vpax_file: Path, replace: bool, infos: list = None) -> None:
     replace : bool
         Whether to replace the existing extracted files.
     """
-    logger.info("START - Extracting DAX measures from VPAX source")
 
     # Check infos to extract
     if infos is None:
         infos = ["Measures", "Tables", "Columns", "Relationships"]
-        logger.info(f"Default infos to extract: {infos}")
+    logger.info(f"START - Extracting {infos} from VPAX.")
 
     # Ensure the VPAX extraction has been done
     path_to_json = (
@@ -303,8 +302,4 @@ def watch_folder(
 
 
 if __name__ == "__main__":
-    # path_to_vpax = Path(
-    #     r"C:\Users\u173350\OneDrive - Universite de Liege\_MY PROJECTS\vpax_project\data\vpax"
-    # )
-    # process_folder(path_to_vpax)
     app()
