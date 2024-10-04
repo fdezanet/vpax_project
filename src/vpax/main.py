@@ -111,8 +111,23 @@ def extract_vpax(vpax_file: Path) -> None:
                     data = json.load(f)
 
 
-def extract_infos_from_vpax(vpax_file: Path, replace: bool, infos: list) -> None:
-    logger.info("START - Extracting Tables infos from VPAX source")
+def extract_infos(vpax_file: Path, replace: bool, infos: list = None) -> None:
+    """
+    Extracts DAX measures from a VPAX JSON file and exports them to a CSV.
+
+    Parameters
+    ----------
+    vpax_file : Path
+        The path to the VPAX file.
+    replace : bool
+        Whether to replace the existing extracted files.
+    """
+    logger.info("START - Extracting DAX measures from VPAX source")
+
+    # Check infos to extract
+    if infos is None:
+        infos = ["Measures", "Tables", "Columns", "Relationships"]
+        logger.info(f"Default infos to extract: {infos}")
 
     # Ensure the VPAX extraction has been done
     path_to_json = (
@@ -159,6 +174,19 @@ def extract_infos_from_vpax(vpax_file: Path, replace: bool, infos: list) -> None
             logger.error(f"'{info}' key not found in the JSON file: {path_to_json}")
             raise e
 
+        # Export to CSV
+        output_file = (
+            Path(vpax_file).parent
+            / Path(vpax_file).stem
+            / f"{Path(vpax_file).stem} - {info}.csv"
+        )
+        try:
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+            df.to_csv(output_file, index=False)
+            logger.info(f"Successfully exported {info} to CSV: {output_file}")
+        except Exception as e:
+            logger.error(f"Error exporting {info} to CSV: {output_file}")
+            raise e
         # Export to CSV
         output_file = (
             Path(vpax_file).parent
@@ -275,4 +303,8 @@ def watch_folder(
 
 
 if __name__ == "__main__":
+    # path_to_vpax = Path(
+    #     r"C:\Users\u173350\OneDrive - Universite de Liege\_MY PROJECTS\vpax_project\data\vpax"
+    # )
+    # process_folder(path_to_vpax)
     app()
