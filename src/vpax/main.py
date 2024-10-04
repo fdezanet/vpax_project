@@ -44,7 +44,11 @@ class VPAXEventHandler(FileSystemEventHandler):
         if isinstance(event, FileModifiedEvent) and event.src_path.endswith(".vpax"):
             vpax_file = Path(event.src_path)
             logger.info(f"Modified VPAX file detected: {vpax_file}")
-            process_vpax_file(vpax_file, self.replace)
+            extract_infos_from_vpax(
+                vpax_file,
+                self.replace,
+                ["Measures", "Tables", "Columns", "Relationships"],
+            )
 
     def on_created(self, event):
         """
@@ -59,7 +63,11 @@ class VPAXEventHandler(FileSystemEventHandler):
         if isinstance(event, FileCreatedEvent) and event.src_path.endswith(".vpax"):
             vpax_file = Path(event.src_path)
             logger.info(f"New VPAX file detected: {vpax_file}")
-            process_vpax_file(vpax_file, self.replace)
+            extract_infos_from_vpax(
+                vpax_file,
+                self.replace,
+                ["Measures", "Tables", "Columns", "Relationships"],
+            )
 
 
 def setup_logging(vpax_file: Path) -> None:
@@ -103,18 +111,8 @@ def extract_vpax(vpax_file: Path) -> None:
                     data = json.load(f)
 
 
-def extract_dax_measures(vpax_file: Path, replace: bool) -> None:
-    """
-    Extracts DAX measures from a VPAX JSON file and exports them to a CSV.
-
-    Parameters
-    ----------
-    vpax_file : Path
-        The path to the VPAX file.
-    replace : bool
-        Whether to replace the existing extracted files.
-    """
-    logger.info("START - Extracting DAX measures from VPAX source")
+def extract_infos_from_vpax(vpax_file: Path, replace: bool, infos: list) -> None:
+    logger.info("START - Extracting Tables infos from VPAX source")
 
     # Ensure the VPAX extraction has been done
     path_to_json = (
@@ -134,7 +132,8 @@ def extract_dax_measures(vpax_file: Path, replace: bool) -> None:
             f"VPAX extraction already completed, JSON file found: {path_to_json}"
         )
 
-    # Proceed to extract DAX measures
+    # Proceed to extract infos
+
     try:
         # Read the JSON file
         with open(path_to_json, "r", encoding="utf-8-sig") as f:
@@ -147,46 +146,34 @@ def extract_dax_measures(vpax_file: Path, replace: bool) -> None:
         logger.error(f"Error decoding JSON file: {path_to_json}")
         raise e
 
-    try:
-        # Convert to DataFrame
-        df = pd.DataFrame(data["Measures"])
-        logger.info(
-            f"Successfully converted measures to DataFrame with {df.shape[0]} rows."
+    logger.info(f"Start extracting extracted {infos} from VPAX file.")
+
+    for info in infos:
+        try:
+            # Convert to DataFrame
+            df = pd.DataFrame(data[info])
+            logger.info(
+                f"Successfully converted {info} to DataFrame with {df.shape[0]} rows."
+            )
+        except KeyError as e:
+            logger.error(f"'{info}' key not found in the JSON file: {path_to_json}")
+            raise e
+
+        # Export to CSV
+        output_file = (
+            Path(vpax_file).parent
+            / Path(vpax_file).stem
+            / f"{Path(vpax_file).stem} - {info}.csv"
         )
-    except KeyError as e:
-        logger.error(f"'Measures' key not found in the JSON file: {path_to_json}")
-        raise e
+        try:
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+            df.to_csv(output_file, index=False)
+            logger.info(f"Successfully exported {info} to CSV: {output_file}")
+        except Exception as e:
+            logger.error(f"Error exporting {info} to CSV: {output_file}")
+            raise e
 
-    # Export to CSV
-    output_file = (
-        Path(vpax_file).parent
-        / Path(vpax_file).stem
-        / f"{Path(vpax_file).stem} - DAX.csv"
-    )
-    try:
-        output_file.parent.mkdir(parents=True, exist_ok=True)
-        df.to_csv(output_file, index=False)
-        logger.info(f"Successfully exported measures to CSV: {output_file}")
-    except Exception as e:
-        logger.error(f"Error exporting measures to CSV: {output_file}")
-        raise e
-
-    logger.info("END - Successfully extracted and saved DAX measures.")
-
-
-def process_vpax_file(vpax_file: Path, replace: bool) -> None:
-    """
-    Process the VPAX file by setting up logging, extracting data, and saving DAX measures.
-
-    Parameters
-    ----------
-    vpax_file : Path
-        The path to the VPAX file.
-    replace : bool
-        Whether to replace the existing extracted files or not.
-    """
-    setup_logging(vpax_file)
-    extract_dax_measures(vpax_file, replace)
+    logger.info(f"Successfully extracted {infos} from VPAX file.")
 
 
 @app.command()
@@ -230,11 +217,14 @@ def process_folder(
         # Setup logging for each VPAX file
         setup_logging(path_to_vpax)
 
-        extract_dax_measures(path_to_vpax, replace)
+        extract_infos_from_vpax(
+            path_to_vpax, replace, ["Measures", "Tables", "Columns", "Relationships"]
+        )
 
-    logger.info("All VPAX files processed.")
+    logger.info("END - All VPAX files processed.")
 
 
+# ! fonction à checker
 @app.command()
 def watch_folder(
     folder_to_watch: Path = typer.Argument(
