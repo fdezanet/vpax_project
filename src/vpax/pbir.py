@@ -18,51 +18,39 @@ class PageParser:
         :param pages_directory: A Path object pointing to the directory containing page subfolders.
         """
         self.pages_directory = pages_directory
-        self.pages_order = self.get_pages_order()
+        self.pages_order = self.get_pages()
 
-    def load_pages(self):
+    def get_pages(self):
         """
-        Load and parse all page.json files within the subfolders of the pages directory.
-
-        :return: A list of dictionaries, each containing 'name' and 'displayName'.
+        Reads the pageOrder from pages.json and returns a list of page names in order.
         """
-        if not self.pages_directory.is_dir():
+        main_pages_file = self.pages_directory / "pages.json"
+        if not main_pages_file.is_file():
             raise PageParserError(
-                f"The specified pages directory does not exist or is not a directory: {self.pages_directory}"
+                f"pages.json file not found in the pages directory: {self.pages_directory}"
             )
 
-        pages_data = []
+        with main_pages_file.open("r", encoding="utf-8") as f:
+            main_pages_content = json.load(f)
 
-        # Iterate through each subdirectory in the pages directory
-        for sub_dir in self.pages_directory.iterdir():
-            if sub_dir.is_dir():
-                page_json_path = sub_dir / "page.json"
-                if page_json_path.is_file():
-                    try:
-                        with page_json_path.open("r", encoding="utf-8") as f:
-                            page_content = json.load(f)
-                    except json.JSONDecodeError as e:
-                        raise PageParserError(
-                            f"JSON decoding error in {page_json_path}: {e}"
-                        ) from e
-                    except FileNotFoundError:
-                        raise PageParserError(
-                            f"page.json file not found in directory: {sub_dir}"
-                        )
+        page_order = main_pages_content.get("pageOrder")
+        if page_order is None:
+            raise PageParserError(
+                f"pages.json in {self.pages_directory} does not contain 'pageOrder'."
+            )
 
-                    name = page_content.get("name")
-                    display_name = page_content.get("displayName")
+        df = pd.DataFrame(page_order, columns=["name"])
 
-                    if name is None or display_name is None:
-                        raise PageParserError(
-                            f"page.json in {sub_dir} is missing 'name' or 'displayName' fields."
-                        )
+        # Create a mapping from page name to its order (index in page_order) and map
+        order_map = {name: idx for idx, name in enumerate(page_order)}
+        df["order"] = df["name"].map(order_map)
 
-                    pages_data.append({"name": name, "displayName": display_name})
+        df.sort_values("order", inplace=True)
+        df.reset_index(drop=True, inplace=True)
 
-        return pages_data
+        return df
 
-    def load_pages_visuals(self):
+    def get_pages_visuals(self):
         """
         Recursively load and parse all visuals from each page subdirectory.
 
@@ -95,9 +83,9 @@ class PageParser:
         visuals_data = []
 
         # Iterate over each page directory
-        for page_dir in self.pages_directory.iterdir():
-            if page_dir.is_dir():
-                page_json_path = page_dir / "page.json"
+        for visuals_dir in self.pages_directory.iterdir():
+            if visuals_dir.is_dir():
+                page_json_path = visuals_dir / "page.json"
                 if not page_json_path.is_file():
                     continue  # Not a valid page directory, skip
 
@@ -114,13 +102,13 @@ class PageParser:
 
                 if page_name is None or page_display_name is None:
                     raise PageParserError(
-                        f"page.json in {page_dir} is missing 'name' or 'displayName' fields."
+                        f"page.json in {visuals_dir} is missing 'name' or 'displayName' fields."
                     )
 
                 # Now look for visuals inside this page directory
                 # A visual is identified by a directory containing a visual.json
-                page_dir = Path(pages_dir) / page_name / "visuals"
-                for visual_dir in page_dir.iterdir():
+                visuals_dir = Path(pages_dir) / page_name / "visuals"
+                for visual_dir in visuals_dir.iterdir():
                     if visual_dir.is_dir():
                         visual_json_path = visual_dir / "visual.json"
                         if visual_json_path.is_file():
@@ -165,77 +153,90 @@ class PageParser:
 
         return visuals_data
 
-    def get_pages_order(self):
+    def find_measures_in_visuals(self, dax_measures):
         """
-        Reads the pageOrder from pages.json and returns a list of page names in order.
+        Recursively search all visuals for given DAX measures.
+
+        For each measure found in a visual's JSON, return a DataFrame with:
+         - pageOrder
+         - pageName
+         - visualName
+         - daxMeasure
+
+        :param dax_measures: A list of DAX measure names (strings) to search for
+        :return: A DataFrame of matches
         """
-        main_pages_file = self.pages_directory / "pages.json"
-        if not main_pages_file.is_file():
+        if not self.pages_directory.is_dir():
             raise PageParserError(
-                f"pages.json file not found in the pages directory: {self.pages_directory}"
+                f"The specified pages directory does not exist or is not a directory: {self.pages_directory}"
             )
 
-        with main_pages_file.open("r", encoding="utf-8") as f:
-            main_pages_content = json.load(f)
+        dax_data = []
 
-        page_order = main_pages_content.get("pageOrder")
-        if page_order is None:
-            raise PageParserError(
-                f"pages.json in {self.pages_directory} does not contain 'pageOrder'."
-            )
+        # Iterate over each page directory
+        for page_dir in self.pages_directory.iterdir():
+            if page_dir.is_dir():
+                page_json_path = page_dir / "page.json"
+                if not page_json_path.is_file():
+                    continue
 
-        # Convert pages_data to a DataFrame
-        df = pd.DataFrame(page_order, columns=["name"])
+                with page_json_path.open("r", encoding="utf-8") as f:
+                    page_content = json.load(f)
 
-        # Create a mapping from page name to its order (index in page_order)
-        order_map = {name: idx for idx, name in enumerate(page_order)}
+                page_name = page_content.get("name")
+                if page_name is None:
+                    continue
 
-        # Add an 'order' column based on this mapping
-        df["order"] = df["name"].map(order_map)
+                # Get the page order from the stored DataFrame
+                if page_name in self.pages_order["name"].values:
+                    page_order_val = self.pages_order.loc[
+                        self.pages_order["name"] == page_name, "order"
+                    ].values[0]
+                else:
+                    # If not found, skip this page
+                    continue
 
-        # Sort df by the 'order' column
-        df.sort_values("order", inplace=True)
-        # Reset the index
-        df.reset_index(drop=True, inplace=True)
+                # Visuals directory
+                # visuals_dir = page_dir / "visuals"
+                visuals_dir = Path(pages_dir) / page_name / "visuals"
+                if not visuals_dir.is_dir():
+                    continue
 
-        return df
+                # Iterate over each visual directory
+                for visual_dir in visuals_dir.iterdir():
+                    if visual_dir.is_dir():
+                        visual_json_path = visual_dir / "visual.json"
+                        if visual_json_path.is_file():
+                            # Instead of loading as JSON and then converting to string,
+                            # we can just read the raw text to perform text searches.
+                            with visual_json_path.open("r", encoding="utf-8") as vf:
+                                visual_json_text = vf.read()
 
-    def merge_page_order(self, pages_data):
-        """
-        Reads the pageOrder from pages.json and returns a pandas DataFrame
-        containing the name of the page and the corresponding order.
-        """
-        main_pages_file = self.pages_directory / "pages.json"
-        if not main_pages_file.is_file():
-            raise PageParserError(
-                f"pages.json file not found in the pages directory: {self.pages_directory}"
-            )
+                            # Check each DAX measure if it appears in the text
+                            found_measures = [
+                                m for m in dax_measures if m in visual_json_text
+                            ]
 
-        with main_pages_file.open("r", encoding="utf-8") as f:
-            main_pages_content = json.load(f)
+                            # If no measure found, skip
+                            if not found_measures:
+                                continue
 
-        page_order = main_pages_content.get("pageOrder")
-        if page_order is None:
-            raise PageParserError(
-                f"pages.json in {self.pages_directory} does not contain 'pageOrder'."
-            )
+                            # We need the visual name, so load the JSON properly
+                            visual_content = json.loads(visual_json_text)
+                            visual_name = visual_content.get("name", "Unknown Visual")
 
-        # Convert pages_data to a DataFrame
-        df = pd.DataFrame(pages_data)
+                            # For each found measure, add a record
+                            for measure in found_measures:
+                                dax_data.append(
+                                    {
+                                        "pageOrder": page_order_val,
+                                        "pageName": page_name,
+                                        "visualName": visual_name,
+                                        "daxMeasure": measure,
+                                    }
+                                )
 
-        # Create a mapping from page name to its order (index in page_order)
-        order_map = {name: idx for idx, name in enumerate(page_order)}
-
-        # Add an 'order' column based on this mapping
-        df["order"] = df["name"].map(order_map)
-
-        # Sort df by the 'order' column
-        df.sort_values("order", inplace=True)
-        # Reset the index
-        df.reset_index(drop=True, inplace=True)
-
-        # Return only the 'name' and 'order' columns as requested
-        return df[["order", "displayName", "name"]]
+        return pd.DataFrame(dax_data)
 
 
 # Example usage:
@@ -258,7 +259,7 @@ if __name__ == "__main__":
     pages_dir = path_to_powerbi_report
     parser = PageParser(pages_dir)
     # page_order = parser.get_pages_order()
-    visuals = parser.load_pages_visuals()
+    visuals = parser.get_pages_visuals()
     output = (
         path_to_onedrive
         / "_POWERBI/tdb_internationalisation_project/dm/pbir"
